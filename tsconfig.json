@@ -36,6 +36,6 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules", "carted-portal-download", "app/carted-portal-download", "page (1).tsx", "actions.ts", "db.ts", "next-auth.d.ts"
   ]
 }
