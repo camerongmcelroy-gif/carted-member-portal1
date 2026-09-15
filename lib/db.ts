@@ -25,8 +25,20 @@ export async function ensureDatabase() {
       last_name TEXT,
       phone TEXT,
       shipping_address TEXT,
+      address_line_2 TEXT,
       city TEXT,
+      province TEXT,
       postal_code TEXT,
+      billing_same_as_shipping BOOLEAN NOT NULL DEFAULT TRUE,
+      billing_address_line_1 TEXT,
+      billing_address_line_2 TEXT,
+      billing_city TEXT,
+      billing_province TEXT,
+      billing_postal_code TEXT,
+      cardholder_name TEXT,
+      card_last_four TEXT,
+      card_expiry_month INTEGER,
+      card_expiry_year INTEGER,
       payment_method TEXT CHECK (payment_method IS NULL OR payment_method IN ('visa', 'mastercard', 'amex')),
       target_quantity INTEGER NOT NULL DEFAULT 1 CHECK (target_quantity BETWEEN 1 AND 100),
       product_preferences TEXT,
@@ -41,8 +53,20 @@ export async function ensureDatabase() {
   await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS last_name TEXT`;
   await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS phone TEXT`;
   await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS shipping_address TEXT`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS address_line_2 TEXT`;
   await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS city TEXT`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS province TEXT`;
   await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS postal_code TEXT`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS billing_same_as_shipping BOOLEAN NOT NULL DEFAULT TRUE`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS billing_address_line_1 TEXT`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS billing_address_line_2 TEXT`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS billing_city TEXT`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS billing_province TEXT`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS billing_postal_code TEXT`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS cardholder_name TEXT`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS card_last_four TEXT`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS card_expiry_month INTEGER`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS card_expiry_year INTEGER`;
   await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS payment_method TEXT`;
   await sql`
     CREATE TABLE IF NOT EXISTS service_profile_secrets (
@@ -77,8 +101,20 @@ export type ServiceProfile = {
   last_name: string | null;
   phone: string | null;
   shipping_address: string | null;
+  address_line_2: string | null;
   city: string | null;
+  province: string | null;
   postal_code: string | null;
+  billing_same_as_shipping: boolean;
+  billing_address_line_1: string | null;
+  billing_address_line_2: string | null;
+  billing_city: string | null;
+  billing_province: string | null;
+  billing_postal_code: string | null;
+  cardholder_name: string | null;
+  card_last_four: string | null;
+  card_expiry_month: number | null;
+  card_expiry_year: number | null;
   payment_method: "visa" | "mastercard" | "amex" | null;
   target_quantity: number;
   product_preferences: string | null;
@@ -92,7 +128,10 @@ export async function getProfiles(discordUserId: string): Promise<ServiceProfile
   const sql = sqlClient();
   return (await sql`
     SELECT id::text, retailer, service_type, account_email, first_name, last_name,
-           phone, shipping_address, city, postal_code, payment_method, target_quantity,
+           phone, shipping_address, address_line_2, city, province, postal_code,
+           billing_same_as_shipping, billing_address_line_1, billing_address_line_2,
+           billing_city, billing_province, billing_postal_code, cardholder_name,
+           card_last_four, card_expiry_month, card_expiry_year, payment_method, target_quantity,
            product_preferences, notes, status, updated_at::text
     FROM service_profiles
     WHERE discord_user_id = ${discordUserId}
@@ -112,8 +151,20 @@ export async function upsertProfile(input: {
   lastName: string;
   phone: string;
   shippingAddress: string;
+  addressLine2: string;
   city: string;
+  province: string;
   postalCode: string;
+  billingSameAsShipping: boolean;
+  billingAddressLine1: string;
+  billingAddressLine2: string;
+  billingCity: string;
+  billingProvince: string;
+  billingPostalCode: string;
+  cardholderName: string;
+  cardLastFour: string;
+  cardExpiryMonth: number | null;
+  cardExpiryYear: number | null;
   paymentMethod: "visa" | "mastercard" | "amex" | null;
   targetQuantity: number;
   productPreferences: string;
@@ -125,13 +176,21 @@ export async function upsertProfile(input: {
     INSERT INTO service_profiles (
       discord_user_id, discord_name, contact_email, retailer, service_type,
       account_email, first_name, last_name, phone, shipping_address, city,
-      postal_code, payment_method, target_quantity, product_preferences, notes
+      address_line_2, province, postal_code, billing_same_as_shipping,
+      billing_address_line_1, billing_address_line_2, billing_city,
+      billing_province, billing_postal_code, cardholder_name, card_last_four,
+      card_expiry_month, card_expiry_year, payment_method, target_quantity,
+      product_preferences, notes
     ) VALUES (
       ${input.discordUserId}, ${input.discordName}, ${input.contactEmail},
       ${input.retailer}, ${input.serviceType}, ${input.accountEmail},
       ${input.firstName}, ${input.lastName}, ${input.phone}, ${input.shippingAddress},
-      ${input.city}, ${input.postalCode}, ${input.paymentMethod},
-      ${input.targetQuantity}, ${input.productPreferences}, ${input.notes}
+      ${input.city}, ${input.addressLine2}, ${input.province}, ${input.postalCode},
+      ${input.billingSameAsShipping}, ${input.billingAddressLine1},
+      ${input.billingAddressLine2}, ${input.billingCity}, ${input.billingProvince},
+      ${input.billingPostalCode}, ${input.cardholderName}, ${input.cardLastFour},
+      ${input.cardExpiryMonth}, ${input.cardExpiryYear}, ${input.paymentMethod}, ${input.targetQuantity},
+      ${input.productPreferences}, ${input.notes}
     )
     ON CONFLICT (discord_user_id, retailer) DO UPDATE SET
       discord_name = EXCLUDED.discord_name,
@@ -142,8 +201,20 @@ export async function upsertProfile(input: {
       last_name = EXCLUDED.last_name,
       phone = EXCLUDED.phone,
       shipping_address = EXCLUDED.shipping_address,
+      address_line_2 = EXCLUDED.address_line_2,
       city = EXCLUDED.city,
+      province = EXCLUDED.province,
       postal_code = EXCLUDED.postal_code,
+      billing_same_as_shipping = EXCLUDED.billing_same_as_shipping,
+      billing_address_line_1 = EXCLUDED.billing_address_line_1,
+      billing_address_line_2 = EXCLUDED.billing_address_line_2,
+      billing_city = EXCLUDED.billing_city,
+      billing_province = EXCLUDED.billing_province,
+      billing_postal_code = EXCLUDED.billing_postal_code,
+      cardholder_name = EXCLUDED.cardholder_name,
+      card_last_four = EXCLUDED.card_last_four,
+      card_expiry_month = EXCLUDED.card_expiry_month,
+      card_expiry_year = EXCLUDED.card_expiry_year,
       payment_method = EXCLUDED.payment_method,
       target_quantity = EXCLUDED.target_quantity,
       product_preferences = EXCLUDED.product_preferences,
