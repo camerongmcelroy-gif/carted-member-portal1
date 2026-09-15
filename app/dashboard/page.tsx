@@ -40,7 +40,7 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
     <aside className="np-sidebar"><p>CARTED MEMBER PORTAL</p><nav aria-label="Member dashboard"><NavItem view="home" active={view} icon="⌂" label="HOME" /><NavItem view="wins" active={view} icon="♛" label="WINS" /><NavItem view="profiles" active={view} icon="▱" label="PROFILES" /><span className="np-nav-disabled"><i>▣</i> INVOICES <em>SOON</em></span><NavItem view="referrals" active={view} icon="♧" label="REFERRALS" /><NavItem view="settings" active={view} icon="☷" label="SETTINGS" /></nav><div className="np-pas"><span>PAS</span><strong>Pay after success</strong><small>No service cost until your product is secured.</small></div><a className="np-back" href="https://carted.ca">← Back to carted.ca</a></aside>
     <main className="np-main">
       {params.saved ? <p className="notice success">Your {retailerLabel(params.saved)} profile was saved.</p> : null}
-      {params.error ? <p className="notice error">That submission could not be saved. Please try again.</p> : null}
+      {params.error ? <p className="notice error">{profileError(params.error)}</p> : null}
       {view === "home" ? <HomeView profiles={profiles.length} confirmed={confirmed} cancelled={cancelled.length} weekWins={weekWins} weekUnits={weekUnits} feedFailed={checkoutResult.failed} /> : null}
       {view === "wins" ? <><PageTitle title="Wins" copy="Your checkout history, quantities, and order status." />{checkoutResult.failed ? <FeedError /> : <LiveCheckouts initial={checkouts} />}</> : null}
       {view === "profiles" ? <ProfilesView profiles={profilesByRetailer} selected={selectedRetailer} /> : null}
@@ -64,11 +64,55 @@ function FeedError() { return <div className="np-empty"><strong>Checkout feed un
 function SettingsView({ name, email, id }: { name?: string | null; email?: string | null; id: string }) { return <><PageTitle title="Settings" copy="Your connected Discord account and portal session." /><section className="np-settings"><span>DISPLAY NAME</span><strong>{name ?? "Carted member"}</strong><span>EMAIL</span><strong>{email ?? "Not shared by Discord"}</strong><span>DISCORD USER ID</span><strong>{id}</strong><form action={disconnectDiscord}><button className="save-button" type="submit">Sign out of Carted</button></form></section></>; }
 function ReferralView() { return <><section className="np-ref-hero"><div><span>♧ INVITE YOUR NETWORK</span><h1>Share Carted and earn credit.</h1><p>Invite someone interested in ACO. Once they join the Carted Discord and their signup is confirmed, you receive a <strong>$10 account credit</strong>.</p><CopyReferral /></div><aside><strong>$0</strong><span>CREDIT EARNED</span></aside></section><section className="np-ref-stats"><article><i>♧</i><span>REFERRALS</span><strong>0</strong><p>Confirmed members referred by you.</p></article><article><i>$</i><span>PER REFERRAL</span><strong className="green">$10</strong><p>Account credit per confirmed signup.</p></article><article><i>✓</i><span>VERIFICATION</span><strong>Manual</strong><p>Carted verifies each new member signup.</p></article></section><section className="np-ref-panel"><h2>Your referrals</h2><div className="np-ref-empty">No confirmed referrals yet. Share your invite link above and contact the Carted team when someone signs up.</div></section><section className="np-ref-panel"><h2>How it works</h2><ol><li><b>1</b><div><strong>Share your link</strong><span>Send the Carted Discord invitation to someone interested in joining.</span></div></li><li><b>2</b><div><strong>They join and sign up</strong><span>Your referral joins the Carted Discord and registers for ACO.</span></div></li><li><b>3</b><div><strong>Receive your credit</strong><span>After Carted confirms the signup, $10 is applied to your account.</span></div><em>$10</em></li></ol></section></>; }
 function retailerLabel(value: string) { return retailers.find(retailer => retailer.id === value)?.name ?? "retailer"; }
+function profileError(value: string) {
+  if (value === "app-password") return "Enter the Walmart app password before saving this profile.";
+  if (value === "encryption-key") return "Walmart app-password storage is not configured yet. Add PROFILE_ENCRYPTION_KEY in Vercel, then redeploy.";
+  if (value === "payment-method") return "Select Visa, Mastercard, or Amex before saving the Pokémon Center profile.";
+  if (value === "profile-details") return "Complete the required Pokémon Center contact and shipping fields before saving.";
+  return "That submission could not be saved. Please try again.";
+}
 
 function ProfilesView({ profiles, selected }: { profiles: Map<string, ServiceProfile>; selected: typeof retailers[number] }) {
   return <><PageTitle title="Profiles" copy="Pick a retailer to create or update your profile." /><div className="np-region-title"><span />CANADA<em>{retailers.length} RETAILERS</em></div><section className="np-retailer-picker">{retailers.map(retailer => { const profile = profiles.get(retailer.id); const active = retailer.id === selected.id; return <a className={active ? "selected" : ""} key={retailer.id} href={`/dashboard?view=profiles&retailer=${retailer.id}`}><div className={`np-retailer-logo ${retailer.id}`}>{retailer.id === "amazon" ? "a" : retailer.id === "walmart" ? "✦" : "●"}</div><strong>{retailer.name} CA</strong><span>● {profile ? "PROFILE READY" : "READY TO ADD"}</span><div className="np-capacity"><i /><i /><i /><i /><i /><i /><i /><i /></div><small>{profile ? "1 loaded" : "0 loaded"}<em>Qty {profile?.target_quantity ?? "—"}</em></small><b>{profile ? "Edit profile" : "+ Add a profile"}</b></a>; })}</section><ProfileEditor retailer={selected} profile={profiles.get(selected.id)} /></>;
 }
 
 function ProfileEditor({ retailer, profile }: { retailer: typeof retailers[number]; profile?: ServiceProfile }) {
-  return <section className="np-profile-editor"><header><span className="np-editor-plus">+</span><div><small>▱ {profile ? "EDIT PROFILE" : "ADD PROFILE"}</small><h2>{profile ? "Update" : "Create"} Profile — {retailer.name} CA</h2><p>Tell Carted what you want us to target for your next checkout.</p></div></header><div className="np-privacy-note">Account passwords, payment card details, CVVs, and two-factor codes are not stored in this profile.</div><form action={saveServiceProfile}><input type="hidden" name="retailer" value={retailer.id} /><div className="np-form-grid"><label>Service type<select name="serviceType" defaultValue={profile?.service_type ?? "checkout"}><option value="checkout">Checkout assistance</option>{retailer.id !== "pokemon-center" ? <option value="account-generation">Account generation</option> : null}<option value="both">Both services</option></select></label><label>Retailer account email<input name="accountEmail" type="email" autoComplete="email" defaultValue={profile?.account_email ?? ""} placeholder="you@email.com" /></label><label>Target quantity<input name="targetQuantity" type="number" min="1" max="100" defaultValue={profile?.target_quantity ?? 1} required /></label><label className="wide">Product preferences<textarea name="productPreferences" maxLength={500} defaultValue={profile?.product_preferences ?? ""} placeholder="Products, sizes, colours, or acceptable alternatives" /></label><label className="wide">Additional notes<textarea name="notes" maxLength={1000} defaultValue={profile?.notes ?? ""} placeholder="Optional checkout instructions" /></label></div><button className="np-profile-save" type="submit">{profile ? "Update Profile" : "Save Profile"}</button>{profile ? <small className="np-updated">Last updated {new Date(profile.updated_at).toLocaleDateString("en-CA")}</small> : null}</form></section>;
+  const isWalmart = retailer.id === "walmart";
+  const isPokemonCenter = retailer.id === "pokemon-center";
+  const privacyMessage = isWalmart
+    ? "The Walmart app password is encrypted and never displayed after it is saved. Payment card details, CVVs, and two-factor codes are not stored here."
+    : isPokemonCenter
+      ? "Only the selected card type is stored. Card numbers, expiry dates, CVVs, passwords, and two-factor codes are not collected."
+      : "Account passwords, payment card details, CVVs, and two-factor codes are not stored in this profile.";
+
+  return <section className="np-profile-editor">
+    <header><span className="np-editor-plus">+</span><div><small>▱ {profile ? "EDIT PROFILE" : "ADD PROFILE"}</small><h2>{profile ? "Update" : "Create"} Profile — {retailer.name} CA</h2><p>Tell Carted what you want us to target for your next checkout.</p></div></header>
+    <div className="np-privacy-note">{privacyMessage}</div>
+    <form action={saveServiceProfile}>
+      <input type="hidden" name="retailer" value={retailer.id} />
+      <input type="hidden" name="serviceType" value="auto-checkout" />
+      <input type="hidden" name="existingProfile" value={profile ? "1" : ""} />
+      <div className="np-form-grid">
+        <label>Service type<span className="np-readonly-field">Auto checkout</span></label>
+        {isWalmart ? <>
+          <label>Catchall<input name="accountEmail" type="text" autoComplete="email" defaultValue={profile?.account_email ?? ""} placeholder="yourdomain.ca or catchall@email.com" required /></label>
+          <label className="wide">App password<input name="appPassword" type="password" autoComplete="new-password" maxLength={200} placeholder={profile ? "Leave blank to keep the current app password" : "Enter the IMAP app password"} required={!profile} /><small className="np-field-help">Encrypted when saved and never shown again.</small></label>
+        </> : <label>Email<input name="accountEmail" type="email" autoComplete="email" defaultValue={profile?.account_email ?? ""} placeholder="you@email.com" required={isPokemonCenter} /></label>}
+        {isPokemonCenter ? <>
+          <label>First name<input name="firstName" autoComplete="given-name" maxLength={100} defaultValue={profile?.first_name ?? ""} required /></label>
+          <label>Last name<input name="lastName" autoComplete="family-name" maxLength={100} defaultValue={profile?.last_name ?? ""} required /></label>
+          <label className="wide">Phone number (optional)<input name="phone" type="tel" autoComplete="tel" maxLength={30} defaultValue={profile?.phone ?? ""} placeholder="Optional" /></label>
+          <label className="wide">Shipping information<textarea name="shippingAddress" autoComplete="street-address" maxLength={300} defaultValue={profile?.shipping_address ?? ""} placeholder="Street address and unit number" required /></label>
+          <label>City<input name="city" autoComplete="address-level2" maxLength={120} defaultValue={profile?.city ?? ""} required /></label>
+          <label>Postal code<input name="postalCode" autoComplete="postal-code" maxLength={20} defaultValue={profile?.postal_code ?? ""} placeholder="A1A 1A1" required /></label>
+          <label className="wide">Payment information<select name="paymentMethod" autoComplete="cc-type" defaultValue={profile?.payment_method ?? ""} required><option value="" disabled>Select card type</option><option value="visa">Visa</option><option value="mastercard">Mastercard</option><option value="amex">Amex</option></select></label>
+        </> : null}
+        <label className="wide">Product preferences<textarea name="productPreferences" maxLength={500} defaultValue={profile?.product_preferences ?? ""} placeholder="Products, sizes, colours, or acceptable alternatives" /></label>
+        <label className="wide">Additional notes<textarea name="notes" maxLength={1000} defaultValue={profile?.notes ?? ""} placeholder="Optional checkout instructions" /></label>
+        <label className="wide">Target quantity<input name="targetQuantity" type="number" min="1" max="100" defaultValue={profile?.target_quantity ?? 1} required /></label>
+      </div>
+      <button className="np-profile-save" type="submit">{profile ? "Update Profile" : "Save Profile"}</button>
+      {profile ? <small className="np-updated">Last updated {new Date(profile.updated_at).toLocaleDateString("en-CA")}</small> : null}
+    </form>
+  </section>;
 }
