@@ -39,6 +39,7 @@ export async function ensureDatabase() {
       card_last_four TEXT,
       card_expiry_month INTEGER,
       card_expiry_year INTEGER,
+      two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE,
       payment_method TEXT CHECK (payment_method IS NULL OR payment_method IN ('visa', 'mastercard', 'amex')),
       target_quantity INTEGER NOT NULL DEFAULT 1 CHECK (target_quantity BETWEEN 1 AND 100),
       product_preferences TEXT,
@@ -67,12 +68,22 @@ export async function ensureDatabase() {
   await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS card_last_four TEXT`;
   await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS card_expiry_month INTEGER`;
   await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS card_expiry_year INTEGER`;
+  await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS two_factor_enabled BOOLEAN NOT NULL DEFAULT FALSE`;
   await sql`ALTER TABLE service_profiles ADD COLUMN IF NOT EXISTS payment_method TEXT`;
   await sql`
     CREATE TABLE IF NOT EXISTS service_profile_secrets (
       discord_user_id TEXT NOT NULL,
       retailer TEXT NOT NULL CHECK (retailer = 'walmart'),
       app_password_encrypted TEXT NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      PRIMARY KEY (discord_user_id, retailer)
+    )
+  `;
+  await sql`
+    CREATE TABLE IF NOT EXISTS amazon_profile_secrets (
+      discord_user_id TEXT NOT NULL,
+      retailer TEXT NOT NULL CHECK (retailer = 'amazon'),
+      account_password_encrypted TEXT NOT NULL,
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       PRIMARY KEY (discord_user_id, retailer)
     )
@@ -115,6 +126,7 @@ export type ServiceProfile = {
   card_last_four: string | null;
   card_expiry_month: number | null;
   card_expiry_year: number | null;
+  two_factor_enabled: boolean;
   payment_method: "visa" | "mastercard" | "amex" | null;
   target_quantity: number;
   product_preferences: string | null;
@@ -131,7 +143,8 @@ export async function getProfiles(discordUserId: string): Promise<ServiceProfile
            phone, shipping_address, address_line_2, city, province, postal_code,
            billing_same_as_shipping, billing_address_line_1, billing_address_line_2,
            billing_city, billing_province, billing_postal_code, cardholder_name,
-           card_last_four, card_expiry_month, card_expiry_year, payment_method, target_quantity,
+           card_last_four, card_expiry_month, card_expiry_year, two_factor_enabled,
+           payment_method, target_quantity,
            product_preferences, notes, status, updated_at::text
     FROM service_profiles
     WHERE discord_user_id = ${discordUserId}
@@ -165,6 +178,7 @@ export async function upsertProfile(input: {
   cardLastFour: string;
   cardExpiryMonth: number | null;
   cardExpiryYear: number | null;
+  twoFactorEnabled: boolean;
   paymentMethod: "visa" | "mastercard" | "amex" | null;
   targetQuantity: number;
   productPreferences: string;
@@ -179,7 +193,7 @@ export async function upsertProfile(input: {
       address_line_2, province, postal_code, billing_same_as_shipping,
       billing_address_line_1, billing_address_line_2, billing_city,
       billing_province, billing_postal_code, cardholder_name, card_last_four,
-      card_expiry_month, card_expiry_year, payment_method, target_quantity,
+      card_expiry_month, card_expiry_year, two_factor_enabled, payment_method, target_quantity,
       product_preferences, notes
     ) VALUES (
       ${input.discordUserId}, ${input.discordName}, ${input.contactEmail},
@@ -189,7 +203,8 @@ export async function upsertProfile(input: {
       ${input.billingSameAsShipping}, ${input.billingAddressLine1},
       ${input.billingAddressLine2}, ${input.billingCity}, ${input.billingProvince},
       ${input.billingPostalCode}, ${input.cardholderName}, ${input.cardLastFour},
-      ${input.cardExpiryMonth}, ${input.cardExpiryYear}, ${input.paymentMethod}, ${input.targetQuantity},
+      ${input.cardExpiryMonth}, ${input.cardExpiryYear}, ${input.twoFactorEnabled},
+      ${input.paymentMethod}, ${input.targetQuantity},
       ${input.productPreferences}, ${input.notes}
     )
     ON CONFLICT (discord_user_id, retailer) DO UPDATE SET
@@ -215,6 +230,7 @@ export async function upsertProfile(input: {
       card_last_four = EXCLUDED.card_last_four,
       card_expiry_month = EXCLUDED.card_expiry_month,
       card_expiry_year = EXCLUDED.card_expiry_year,
+      two_factor_enabled = EXCLUDED.two_factor_enabled,
       payment_method = EXCLUDED.payment_method,
       target_quantity = EXCLUDED.target_quantity,
       product_preferences = EXCLUDED.product_preferences,
@@ -232,6 +248,21 @@ export async function upsertProfile(input: {
       )
       ON CONFLICT (discord_user_id, retailer) DO UPDATE SET
         app_password_encrypted = EXCLUDED.app_password_encrypted,
+        updated_at = NOW()
+    `;
+    await sql.transaction([profileQuery, secretQuery]);
+    return;
+  }
+  if (input.retailer === "amazon" && input.appPassword) {
+    const encrypted = encryptAppPassword(input.appPassword);
+    const secretQuery = sql`
+      INSERT INTO amazon_profile_secrets (
+        discord_user_id, retailer, account_password_encrypted
+      ) VALUES (
+        ${input.discordUserId}, 'amazon', ${encrypted}
+      )
+      ON CONFLICT (discord_user_id, retailer) DO UPDATE SET
+        account_password_encrypted = EXCLUDED.account_password_encrypted,
         updated_at = NOW()
     `;
     await sql.transaction([profileQuery, secretQuery]);

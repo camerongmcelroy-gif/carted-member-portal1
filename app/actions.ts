@@ -24,12 +24,12 @@ export async function saveServiceProfile(formData: FormData) {
 
   const rawQuantity = Number(formData.get("targetQuantity") ?? 1);
   const targetQuantity = Math.max(1, Math.min(100, Number.isFinite(rawQuantity) ? rawQuantity : 1));
-  const appPassword = retailer === "walmart"
+  const appPassword = retailer === "walmart" || retailer === "amazon"
     ? String(formData.get("appPassword") ?? "").trim().slice(0, 200)
     : "";
 
-  if (retailer === "walmart" && !appPassword && !String(formData.get("existingProfile") ?? "")) {
-    redirect("/dashboard?view=profiles&retailer=walmart&error=app-password");
+  if ((retailer === "walmart" || retailer === "amazon") && !appPassword && !String(formData.get("existingProfile") ?? "")) {
+    redirect(`/dashboard?view=profiles&retailer=${retailer}&error=${retailer === "amazon" ? "amazon-password" : "app-password"}`);
   }
   if (appPassword && !process.env.PROFILE_ENCRYPTION_KEY) {
     redirect("/dashboard?view=profiles&retailer=walmart&error=encryption-key");
@@ -62,6 +62,11 @@ export async function saveServiceProfile(formData: FormData) {
   const cardExpiryMonth = Number.isInteger(rawExpiryMonth) && rawExpiryMonth >= 1 && rawExpiryMonth <= 12 ? rawExpiryMonth : null;
   const cardExpiryYear = Number.isInteger(rawExpiryYear) && rawExpiryYear >= new Date().getFullYear() && rawExpiryYear <= new Date().getFullYear() + 20 ? rawExpiryYear : null;
   const accountEmail = String(formData.get("accountEmail") ?? "").trim().slice(0, 254);
+  const twoFactorEnabled = retailer === "amazon" && formData.get("twoFactorEnabled") === "yes";
+
+  if (retailer === "amazon" && (!accountEmail || formData.get("termsAccepted") !== "on")) {
+    redirect("/dashboard?view=profiles&retailer=amazon&error=amazon-details");
+  }
 
   if (retailer === "pokemon-center" && !paymentMethod) {
     redirect("/dashboard?view=profiles&retailer=pokemon-center&error=payment-method");
@@ -105,6 +110,7 @@ export async function saveServiceProfile(formData: FormData) {
     cardLastFour,
     cardExpiryMonth,
     cardExpiryYear,
+    twoFactorEnabled,
     paymentMethod,
     targetQuantity,
     productPreferences: retailer === "amazon" ? String(formData.get("productPreferences") ?? "").slice(0, 500) : "",

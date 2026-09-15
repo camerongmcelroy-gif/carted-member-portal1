@@ -74,6 +74,8 @@ function ReferralView() { return <><section className="np-ref-hero"><div><span>�
 function retailerLabel(value: string) { return retailers.find(retailer => retailer.id === value)?.name ?? "retailer"; }
 function profileError(value: string) {
   if (value === "app-password") return "Enter the Walmart app password before saving this profile.";
+  if (value === "amazon-password") return "Enter the Amazon account password before saving this profile.";
+  if (value === "amazon-details") return "Enter the Amazon email and accept the profile terms before saving.";
   if (value === "encryption-key") return "Walmart app-password storage is not configured yet. Add PROFILE_ENCRYPTION_KEY in Vercel, then redeploy.";
   if (value === "payment-method") return "Select Visa, Mastercard, or Amex before saving the Pokémon Center profile.";
   if (value === "profile-details") return "Complete the required Pokémon Center contact and shipping fields before saving.";
@@ -92,7 +94,7 @@ function ProfileEditor({ retailer, profile }: { retailer: typeof retailers[numbe
     ? "The Walmart app password is encrypted and never displayed. Only card type, last four digits, and expiry are stored; full card numbers and CVVs are never collected."
     : isPokemonCenter
       ? "Only the selected card type is stored. Card numbers, expiry dates, CVVs, passwords, and two-factor codes are not collected."
-      : "Account passwords, payment card details, CVVs, and two-factor codes are not stored in this profile.";
+      : "The Amazon password is encrypted and never displayed after saving. CVVs and permanent 2FA authentication keys are never collected.";
 
   return <section className="np-profile-editor">
     <header><span className="np-editor-plus">+</span><div><small>▱ {profile ? "EDIT PROFILE" : "ADD PROFILE"}</small><h2>{profile ? "Update" : "Create"} Profile — {retailer.name} CA</h2><p>{isWalmart ? "Add your account, safe card reference, and shipping details for checkout." : isPokemonCenter ? "Add the shipping and payment preferences needed for checkout." : "Tell Carted what you want us to target for your next checkout."}</p></div></header>
@@ -130,7 +132,14 @@ function ProfileEditor({ retailer, profile }: { retailer: typeof retailers[numbe
               <label>Billing postal code<input name="billingPostalCode" autoComplete="billing postal-code" maxLength={20} defaultValue={profile?.billing_postal_code ?? ""} placeholder="A1A 1A1" /></label>
             </div>
           </div>
-        </> : <label>Email<input name="accountEmail" type="email" autoComplete="email" defaultValue={profile?.account_email ?? ""} placeholder="you@email.com" required={isPokemonCenter} /></label>}
+        </> : isPokemonCenter ? <label>Email<input name="accountEmail" type="email" autoComplete="email" defaultValue={profile?.account_email ?? ""} placeholder="you@email.com" required /></label> : <>
+          <div className="np-amazon-warning wide">Amazon may lock or suspend accounts. By submitting a profile, you acknowledge this possibility.</div>
+          <label>Amazon email<input name="accountEmail" type="email" autoComplete="email" defaultValue={profile?.account_email ?? ""} placeholder="you@email.com" required /></label>
+          <label>Amazon password<input name="appPassword" type="password" autoComplete="new-password" maxLength={200} placeholder={profile ? "Leave blank to keep the current password" : "Password"} required={!profile} /><small className="np-field-help">Encrypted when saved and never shown again.</small></label>
+          <label className="wide">Two-factor authentication<select name="twoFactorEnabled" defaultValue={profile?.two_factor_enabled ? "yes" : "no"} required><option value="no">Not enabled</option><option value="yes">Enabled — request a one-time code when needed</option></select><small className="np-field-help">Do not enter your permanent 2FA setup key.</small></label>
+          <label className="np-terms-row wide"><input name="termsAccepted" type="checkbox" required /><span>I understand the account risks and agree to the Carted profile terms.</span></label>
+          <div className="np-edit-window wide">Once saved, contact Carted within <strong>30 minutes</strong> if anything needs to be corrected.</div>
+        </>}
         {isPokemonCenter ? <>
           <div className="np-checkout-steps wide"><strong><i>1</i> Shipping</strong><span /><em><i>2</i> Payment</em></div>
           <label>First name<input name="firstName" autoComplete="given-name" maxLength={100} defaultValue={profile?.first_name ?? ""} required /></label>
