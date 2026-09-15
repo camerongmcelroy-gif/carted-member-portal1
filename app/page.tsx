@@ -6,6 +6,7 @@ import { getProfiles, type ServiceProfile } from "@/lib/db";
 import { listCheckouts, type Checkout } from "@/lib/checkouts";
 import { disconnectDiscord, saveServiceProfile } from "../actions";
 import LiveCheckouts, { ProductImage } from "../components/live-checkouts";
+import CopyReferral from "./copy-referral";
 
 const retailers = [
   { id: "amazon", name: "Amazon", eyebrow: "AMAZON CA", description: "Checkout assistance and account setup preferences." },
@@ -13,17 +14,17 @@ const retailers = [
   { id: "pokemon-center", name: "Pokémon Center", eyebrow: "POKÉMON CENTER CA", description: "Submit product preferences with no artificial price cap." },
 ] as const;
 
-type View = "home" | "wins" | "profiles" | "settings";
+type View = "home" | "wins" | "profiles" | "referrals" | "settings";
 type SearchParams = Promise<{ saved?: string; error?: string; view?: string; retailer?: string }>;
 
 export default async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/");
   const params = await searchParams;
-  const view: View = ["wins", "profiles", "settings"].includes(params.view ?? "") ? params.view as View : "home";
+  const view: View = ["wins", "profiles", "referrals", "settings"].includes(params.view ?? "") ? params.view as View : "home";
   const [profiles, checkoutResult] = await Promise.all([
     getProfiles(session.user.id),
-    view === "profiles" ? Promise.resolve({ items: [] as Checkout[], failed: false }) : listCheckouts(session.user.id).then(items => ({ items, failed: false })).catch(() => ({ items: [] as Checkout[], failed: true })),
+    ["profiles", "referrals", "settings"].includes(view) ? Promise.resolve({ items: [] as Checkout[], failed: false }) : listCheckouts(session.user.id).then(items => ({ items, failed: false })).catch(() => ({ items: [] as Checkout[], failed: true })),
   ]);
   const checkouts = checkoutResult.items;
   const profilesByRetailer = new Map(profiles.map(profile => [profile.retailer, profile]));
@@ -36,13 +37,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
 
   return <div className="np-shell">
     <header className="np-topbar"><a className="np-logo" href="/dashboard"><Image src="/carted-logo.png" alt="" width={38} height={38} priority /><strong>CARTED</strong></a><div className="np-member">{session.user.image ? <Image src={session.user.image} alt="" width={30} height={30} unoptimized /> : <span className="np-avatar-fallback">{(session.user.name ?? "C")[0]}</span>}<span>{session.user.name ?? "Carted member"}</span></div></header>
-    <aside className="np-sidebar"><p>CARTED MEMBER PORTAL</p><nav aria-label="Member dashboard"><NavItem view="home" active={view} icon="⌂" label="HOME" /><NavItem view="wins" active={view} icon="♛" label="WINS" /><NavItem view="profiles" active={view} icon="▱" label="PROFILES" /><span className="np-nav-disabled"><i>▣</i> INVOICES <em>SOON</em></span><span className="np-nav-disabled"><i>♧</i> REFERRALS <em>SOON</em></span><NavItem view="settings" active={view} icon="☷" label="SETTINGS" /></nav><div className="np-pas"><span>PAS</span><strong>Pay after success</strong><small>No service cost until your product is secured.</small></div><a className="np-back" href="https://carted.ca">← Back to carted.ca</a></aside>
+    <aside className="np-sidebar"><p>CARTED MEMBER PORTAL</p><nav aria-label="Member dashboard"><NavItem view="home" active={view} icon="⌂" label="HOME" /><NavItem view="wins" active={view} icon="♛" label="WINS" /><NavItem view="profiles" active={view} icon="▱" label="PROFILES" /><span className="np-nav-disabled"><i>▣</i> INVOICES <em>SOON</em></span><NavItem view="referrals" active={view} icon="♧" label="REFERRALS" /><NavItem view="settings" active={view} icon="☷" label="SETTINGS" /></nav><div className="np-pas"><span>PAS</span><strong>Pay after success</strong><small>No service cost until your product is secured.</small></div><a className="np-back" href="https://carted.ca">← Back to carted.ca</a></aside>
     <main className="np-main">
       {params.saved ? <p className="notice success">Your {retailerLabel(params.saved)} profile was saved.</p> : null}
       {params.error ? <p className="notice error">That submission could not be saved. Please try again.</p> : null}
       {view === "home" ? <HomeView profiles={profiles.length} confirmed={confirmed} cancelled={cancelled.length} weekWins={weekWins} weekUnits={weekUnits} feedFailed={checkoutResult.failed} /> : null}
       {view === "wins" ? <><PageTitle title="Wins" copy="Your checkout history, quantities, and order status." />{checkoutResult.failed ? <FeedError /> : <LiveCheckouts initial={checkouts} />}</> : null}
       {view === "profiles" ? <ProfilesView profiles={profilesByRetailer} selected={selectedRetailer} /> : null}
+      {view === "referrals" ? <ReferralView /> : null}
       {view === "settings" ? <SettingsView name={session.user.name} email={session.user.email} id={session.user.id} /> : null}
     </main>
   </div>;
@@ -60,6 +62,7 @@ function Metric({ icon, value, label, note }: { icon: string; value: number; lab
 function WinRow({ item }: { item: Checkout }) { const price = item.price_cents == null ? "Price unavailable" : new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(item.price_cents / 100); return <div className="np-win"><ProductImage src={item.image_url} name={item.product} /><div><strong>{item.product}</strong><span>{item.retailer} · {price} · Qty {item.quantity ?? "—"}</span></div><time dateTime={item.checked_out_at}>{new Date(item.checked_out_at).toLocaleDateString("en-CA", { month: "short", day: "numeric" })}</time></div>; }
 function FeedError() { return <div className="np-empty"><strong>Checkout feed unavailable.</strong><p>Your profiles are safe. Please try the feed again shortly.</p></div>; }
 function SettingsView({ name, email, id }: { name?: string | null; email?: string | null; id: string }) { return <><PageTitle title="Settings" copy="Your connected Discord account and portal session." /><section className="np-settings"><span>DISPLAY NAME</span><strong>{name ?? "Carted member"}</strong><span>EMAIL</span><strong>{email ?? "Not shared by Discord"}</strong><span>DISCORD USER ID</span><strong>{id}</strong><form action={disconnectDiscord}><button className="save-button" type="submit">Sign out of Carted</button></form></section></>; }
+function ReferralView() { return <><section className="np-ref-hero"><div><span>♧ INVITE YOUR NETWORK</span><h1>Share Carted and earn credit.</h1><p>Invite someone interested in ACO. Once they join the Carted Discord and their signup is confirmed, you receive a <strong>$10 account credit</strong>.</p><CopyReferral /></div><aside><strong>$0</strong><span>CREDIT EARNED</span></aside></section><section className="np-ref-stats"><article><i>♧</i><span>REFERRALS</span><strong>0</strong><p>Confirmed members referred by you.</p></article><article><i>$</i><span>PER REFERRAL</span><strong className="green">$10</strong><p>Account credit per confirmed signup.</p></article><article><i>✓</i><span>VERIFICATION</span><strong>Manual</strong><p>Carted verifies each new member signup.</p></article></section><section className="np-ref-panel"><h2>Your referrals</h2><div className="np-ref-empty">No confirmed referrals yet. Share your invite link above and contact the Carted team when someone signs up.</div></section><section className="np-ref-panel"><h2>How it works</h2><ol><li><b>1</b><div><strong>Share your link</strong><span>Send the Carted Discord invitation to someone interested in joining.</span></div></li><li><b>2</b><div><strong>They join and sign up</strong><span>Your referral joins the Carted Discord and registers for ACO.</span></div></li><li><b>3</b><div><strong>Receive your credit</strong><span>After Carted confirms the signup, $10 is applied to your account.</span></div><em>$10</em></li></ol></section></>; }
 function retailerLabel(value: string) { return retailers.find(retailer => retailer.id === value)?.name ?? "retailer"; }
 
 function ProfilesView({ profiles, selected }: { profiles: Map<string, ServiceProfile>; selected: typeof retailers[number] }) {
