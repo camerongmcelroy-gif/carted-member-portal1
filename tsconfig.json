@@ -30,12 +30,19 @@
   },
   "include": [
     "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
+    "auth.ts",
+    "proxy.ts",
+    "next.config.ts",
+    "app/**/*.ts",
+    "app/**/*.tsx",
+    "lib/**/*.ts",
+    "types/**/*.d.ts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules", "carted-portal-download", "app/carted-portal-download", "page (1).tsx", "actions.ts", "db.ts", "next-auth.d.ts"
+    "node_modules",
+    "app/app",
+    "app/carted-portal-download"
   ]
 }
