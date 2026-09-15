@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
   <title id="title">Walmart</title>
-  <rect width="64" height="64" rx="14" fill="#fff"/>
+  <rect width="64" height="64" rx="14" fill="#0053e2"/>
   <g fill="#ffc220" transform="translate(32 32)">
     <rect x="-3.2" y="-25" width="6.4" height="17" rx="3.2"/>
     <rect x="-3.2" y="8" width="6.4" height="17" rx="3.2"/>
