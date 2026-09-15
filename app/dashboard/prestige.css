@@ -20,6 +20,17 @@
 .np-retailer-picker>a:active{transform:perspective(900px) translateY(-1px) scale(.99)}
 @media(prefers-reduced-motion:reduce){.np-retailer-picker>a{transform:none!important;transition:none}}
 
-.np-retailer-logo{overflow:hidden;border:1px solid #dce3ea;background:#fff}
+.np-retailer-logo{overflow:hidden;border:1px solid #dce3ea;background:#fff;box-shadow:0 5px 14px rgba(0,0,0,.22)}
 .np-retailer-logo img{display:block;width:100%;height:100%;object-fit:contain}
-.np-retailer-logo.pokemon-center{border:1px solid #dce3ea}
+.np-retailer-logo.amazon img{padding:3px}.np-retailer-logo.walmart{border-color:#1769ea}.np-retailer-logo.walmart img{padding:3px}.np-retailer-logo.pokemon-center{border:1px solid #dce3ea}.np-retailer-logo.pokemon-center img{padding:2px}
+
+/* Give every member-navigation row a small, consistent hover response. */
+.np-sidebar nav a,.np-nav-disabled{transition:transform .18s ease,color .18s ease,background-color .18s ease,border-color .18s ease}
+.np-sidebar nav a i,.np-nav-disabled i{transition:transform .18s ease}
+.np-sidebar nav a:hover,.np-nav-disabled:hover{transform:translateX(4px)}
+.np-sidebar nav a:hover i,.np-nav-disabled:hover i{transform:scale(1.12)}
+@media(max-width:720px){.np-sidebar nav a:hover,.np-nav-disabled:hover{transform:translateY(-2px)}}
+@media(prefers-reduced-motion:reduce){.np-sidebar nav a,.np-nav-disabled,.np-sidebar nav a i,.np-nav-disabled i{transition:none}.np-sidebar nav a:hover,.np-nav-disabled:hover,.np-sidebar nav a:hover i,.np-nav-disabled:hover i{transform:none}}
+
+.np-invoice-link em{margin-left:auto;padding:3px 5px;border:1px solid #315f8d;border-radius:4px;color:#70bdff;font-size:7px;font-style:normal;letter-spacing:.5px}
+@media(max-width:720px){.np-sidebar nav{grid-template-columns:repeat(6,1fr)}.np-invoice-link em{display:none}}
