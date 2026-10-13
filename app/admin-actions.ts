@@ -6,15 +6,17 @@ import { revalidatePath } from "next/cache";
 import {
   changeOrderPaymentStatus,
   createMemberOrder,
+  getCatalogProduct,
   getOrderPricingDetails,
   getOrderRefundDetails,
+  saveCatalogProduct,
   markOrderRefunded,
+  setCatalogProductActive,
   saveDefaultFeeCents,
   updateMemberOrderPricing,
   updateMemberOrder,
   type MemberOrderStatus,
 } from "@/lib/member-orders";
-import { validateRetailerProductUrl, type RetailerId } from "@/lib/product-url";
 import { stripeClient, stripeWebhookSecret } from "@/lib/stripe";
 
 function parseMoneyCents(value: FormDataEntryValue | null, label: string): number {
@@ -31,21 +33,17 @@ export async function addMemberOrder(data: FormData) {
 
   const memberId = String(data.get("memberId") ?? "").trim();
   const memberEmail = String(data.get("memberEmail") ?? "").trim().toLowerCase();
-  const product = String(data.get("product") ?? "").trim().slice(0, 200);
-  const retailer = String(data.get("retailer") ?? "");
-  const rawProductUrl = String(data.get("productUrl") ?? "").trim().slice(0, 1000);
+  const catalogProductId = String(data.get("productId") ?? "").trim();
   const quantity = Number(data.get("quantity"));
   const rawOrderValue = String(data.get("orderValue") ?? "").trim();
-  if (!rawOrderValue) throw new Error("Set the product price before adding a payable order");
-  const orderValueCents = parseMoneyCents(rawOrderValue, "item price");
   const feeCents = parseMoneyCents(data.get("fee"), "fee");
 
+  const catalogProduct = catalogProductId ? await getCatalogProduct(catalogProductId) : null;
+  if (!catalogProduct?.active) throw new Error("Select an active catalog product");
   if (!/^\d{17,20}$/.test(memberId)) throw new Error("Enter a valid Discord user ID");
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(memberEmail) || memberEmail.length > 254) throw new Error("Enter a valid member email");
-  if (!product) throw new Error("Enter a product name");
-  if (!["amazon", "walmart", "pokemon-center"].includes(retailer)) throw new Error("Select a valid retailer");
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) throw new Error("Quantity must be between 1 and 100");
-  const productUrl = rawProductUrl ? validateRetailerProductUrl(rawProductUrl, retailer as RetailerId) : null;
+  const orderValueCents = rawOrderValue ? parseMoneyCents(rawOrderValue, "item price") : catalogProduct.unit_price_cents;
   const chargeTotal = orderValueCents * quantity + feeCents;
   if (!Number.isSafeInteger(chargeTotal) || chargeTotal <= 0 || chargeTotal > 99_999_999) {
     throw new Error("The order total must be between $0.01 and $999,999.99 CAD");
@@ -54,9 +52,10 @@ export async function addMemberOrder(data: FormData) {
   await createMemberOrder({
     memberId,
     memberEmail,
-    product,
-    productUrl,
-    retailer: retailer as "amazon" | "walmart" | "pokemon-center",
+    product: catalogProduct.name,
+    productUrl: null,
+    catalogProductId,
+    retailer: catalogProduct.retailer,
     quantity,
     orderValueCents,
     feeCents,
@@ -71,19 +70,17 @@ export async function updateMemberOrderPricingAction(data: FormData) {
   if (!isAdmin(session?.user?.id)) throw new Error("Forbidden");
 
   const id = String(data.get("id") ?? "").trim();
-  const product = String(data.get("product") ?? "").trim().slice(0, 200);
-  const retailer = String(data.get("retailer") ?? "");
-  const rawProductUrl = String(data.get("productUrl") ?? "").trim().slice(0, 1000);
+  const catalogProductId = String(data.get("productId") ?? "").trim();
   const quantity = Number(data.get("quantity"));
   const rawUnitPrice = String(data.get("unitPrice") ?? "").trim();
-  const unitPriceCents = parseMoneyCents(rawUnitPrice, "item price");
   const feeCents = parseMoneyCents(data.get("fee"), "service fee");
 
   if (!id) throw new Error("Order ID is required");
-  if (!product) throw new Error("Enter a product name");
-  if (!["amazon", "walmart", "pokemon-center"].includes(retailer)) throw new Error("Select a valid retailer");
+  const catalogProduct = catalogProductId ? await getCatalogProduct(catalogProductId) : null;
+  if (!catalogProduct) throw new Error("Select a valid catalog product");
+  if (!catalogProduct.active) throw new Error("Activate this catalog product before assigning it");
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) throw new Error("Quantity must be between 1 and 100");
-  const productUrl = rawProductUrl ? validateRetailerProductUrl(rawProductUrl, retailer as RetailerId) : null;
+  const unitPriceCents = rawUnitPrice ? parseMoneyCents(rawUnitPrice, "item price") : catalogProduct.unit_price_cents;
   const chargeTotal = unitPriceCents * quantity + feeCents;
   if (!Number.isSafeInteger(chargeTotal) || chargeTotal <= 0 || chargeTotal > 99_999_999) {
     throw new Error("The order total must be between $0.01 and $999,999.99 CAD");
@@ -108,15 +105,68 @@ export async function updateMemberOrderPricingAction(data: FormData) {
 
   await updateMemberOrderPricing({
     id,
-    product,
-    productUrl,
-    retailer: retailer as "amazon" | "walmart" | "pokemon-center",
+    catalogProductId,
+    product: catalogProduct.name,
+    productUrl: null,
+    retailer: catalogProduct.retailer,
     quantity,
     unitPriceCents,
     feeCents,
     expectedCheckoutSessionId: current.stripe_checkout_session_id,
   });
   revalidatePath("/dashboard");
+  revalidatePath("/dashboard/admin");
+}
+
+export async function saveCatalogProductAction(data: FormData) {
+  const session = await auth();
+  if (!isAdmin(session?.user?.id)) throw new Error("Forbidden");
+
+  const id = String(data.get("id") ?? "").trim() || null;
+  const name = String(data.get("name") ?? "").trim().slice(0, 200);
+  const retailer = String(data.get("retailer") ?? "");
+  const category = String(data.get("category") ?? "").trim().slice(0, 80);
+  const unitPriceCents = parseMoneyCents(data.get("unitPrice"), "item price");
+  const file = data.get("image");
+
+  if (!name) throw new Error("Enter a product name");
+  if (!["amazon", "walmart", "pokemon-center"].includes(retailer)) throw new Error("Select a valid retailer");
+  let imageData: string | null = null;
+  if (file instanceof File && file.size > 0) {
+    if (file.size > 1_000_000) throw new Error("Product images must be 1 MB or smaller");
+    const allowedTypes = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (!allowedTypes.has(file.type)) throw new Error("Upload a JPG, PNG, or WebP image");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const matchesType = file.type === "image/jpeg"
+      ? bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff
+      : file.type === "image/png"
+        ? bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47
+        : bytes[0] === 0x52 && bytes[1] === 0x49 && bytes[2] === 0x46 && bytes[3] === 0x46
+          && bytes[8] === 0x57 && bytes[9] === 0x45 && bytes[10] === 0x42 && bytes[11] === 0x50;
+    if (!matchesType) throw new Error("The uploaded file does not match its image type");
+    imageData = `data:${file.type};base64,${Buffer.from(bytes).toString("base64")}`;
+  }
+  if (!id && !imageData) throw new Error("Upload an image for this product");
+  await saveCatalogProduct({
+    id,
+    name,
+    retailer: retailer as "amazon" | "walmart" | "pokemon-center",
+    category,
+    imageData,
+    unitPriceCents,
+    adminId: session!.user.id,
+  });
+  revalidatePath("/dashboard/admin");
+  revalidatePath("/dashboard");
+}
+
+export async function setCatalogProductActiveAction(data: FormData) {
+  const session = await auth();
+  if (!isAdmin(session?.user?.id)) throw new Error("Forbidden");
+  const id = String(data.get("id") ?? "").trim();
+  const active = String(data.get("active") ?? "") === "true";
+  if (!id) throw new Error("Product ID is required");
+  await setCatalogProductActive(id, active);
   revalidatePath("/dashboard/admin");
 }
 
