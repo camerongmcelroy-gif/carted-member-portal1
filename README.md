@@ -5,7 +5,10 @@ A Vercel-ready Next.js portal with Discord OAuth and Neon Postgres-backed retail
 ## What is included
 
 - Public Discord sign-in: any Discord user can create a Carted portal session.
-- Protected member dashboard.
+- Protected member dashboard with member-scoped orders, fee status, and tracking links.
+- Member checkout requests are recorded first; Carted confirms item pricing and the service fee before the member pays through Stripe.
+- Stripe charges the saved product price multiplied by quantity, plus the saved service fee, with signed webhook payment confirmation.
+- Admin-only order management for adding and pricing member orders, setting the default CAD fee, updating tracking/status, and issuing full refunds.
 - Amazon, Walmart, and Pokémon Center Canada setup forms.
 - Amazon and Walmart account-generation service selection.
 - Quantity and product preferences (Pokémon Center has no $50 cap).
@@ -28,9 +31,13 @@ A Vercel-ready Next.js portal with Discord OAuth and Neon Postgres-backed retail
    - `AUTH_SECRET` = a long random secret (generate with `openssl rand -base64 32`)
    - `AUTH_URL` = `https://portal.carted.ca`
    - `AUTH_TRUST_HOST` = `true`
+   - `ADMIN_DISCORD_IDS` = comma-separated Discord user IDs allowed to manage member orders and fees
+   - `STRIPE_SECRET_KEY` = Stripe secret API key
+   - `STRIPE_WEBHOOK_SECRET` = signing secret for the portal's Stripe webhook
 
 7. Redeploy the project after saving the variables.
-8. Under **Vercel → Project → Settings → Domains**, add `portal.carted.ca`. Keep the DNS record Vercel provides at GoDaddy.
+8. In Stripe, add a webhook endpoint at `https://portal.carted.ca/api/webhooks/stripe` for `checkout.session.completed`, `checkout.session.async_payment_succeeded`, and `charge.refunded`. Copy its signing secret to `STRIPE_WEBHOOK_SECRET` and redeploy.
+9. Under **Vercel → Project → Settings → Domains**, add `portal.carted.ca`. Keep the DNS record Vercel provides at GoDaddy.
 
 ## Local development
 
@@ -46,3 +53,5 @@ For local Discord testing, also add `http://localhost:3000/api/auth/callback/dis
 ## Important
 
 Do not commit `.env.local` or paste secrets into source files. This package contains no credentials. The database table is created automatically on the first authenticated dashboard visit.
+
+Configure `ADMIN_DISCORD_IDS` and Stripe before launch. Members can submit a checkout request even when the default fee is $0.00 CAD. The request is not charged until Carted sets or verifies its item price and service fee in the admin portal. Stripe then charges the saved item price multiplied by quantity plus the saved fee; amounts come from the database, never from a browser-submitted checkout total. Pricing edits expire any open Stripe Checkout Session. Payment status changes only after a signed Stripe webhook; admins can waive unpaid orders or issue full refunds for Stripe-paid orders. Members only see orders assigned to their Discord user ID.

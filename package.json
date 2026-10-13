@@ -2,7 +2,9 @@
   "name": "carted-member-portal",
   "version": "1.0.0",
   "private": true,
-  "engines": { "node": ">=20.9.0" },
+  "engines": {
+    "node": ">=20.9.0"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
@@ -13,7 +15,8 @@
     "next": "^16.2.6",
     "next-auth": "beta",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "stripe": "^23.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.19.19",
