@@ -17,8 +17,8 @@ const steps = [
   },
   {
     number: "03",
-    title: "Pay the fee securely",
-    copy: "Your service fee is shown before checkout and paid through Stripe.",
+    title: "Review and pay securely",
+    copy: "Carted confirms the item price and service fee before you pay the full total through Stripe.",
   },
   {
     number: "04",
@@ -86,7 +86,7 @@ export default async function SignInPage() {
                 <div className="home-preview-order-info"><span>WALMART CA</span><strong>Order on its way</strong><small>Tracking updates in your portal</small></div>
                 <span className="home-preview-status home-preview-shipped">SHIPPED</span>
               </article>
-              <div className="home-preview-payment"><span><i>✓</i> Secure payment with Stripe</span><small>Fees shown before you pay</small></div>
+              <div className="home-preview-payment"><span><i>✓</i> Secure payment with Stripe</span><small>Item price + service fee shown first</small></div>
             </div>
           </div>
           <div className="home-preview-caption"><i /> A clearer view of every request.</div>
@@ -96,8 +96,8 @@ export default async function SignInPage() {
       <section className="home-benefits" id="member-tools" aria-label="Member portal features">
         <article><span className="home-benefit-icon">▤</span><div><strong>Your orders</strong><p>Requests, status, and fees at a glance.</p></div></article>
         <article><span className="home-benefit-icon">↗</span><div><strong>Progress & tracking</strong><p>Know what’s processing and what shipped.</p></div></article>
-        <article><span className="home-benefit-icon">$</span><div><strong>Clear order fees</strong><p>See the fee and payment status for each order.</p></div></article>
-        <article><span className="home-benefit-icon">✓</span><div><strong>Secure payments</strong><p>Pay fees through Stripe’s hosted checkout.</p></div></article>
+        <article><span className="home-benefit-icon">$</span><div><strong>Clear order totals</strong><p>See product pricing, service fee, and payment status for each order.</p></div></article>
+        <article><span className="home-benefit-icon">✓</span><div><strong>Secure payments</strong><p>Pay the confirmed product total and fee through Stripe’s hosted checkout.</p></div></article>
       </section>
 
       <section className="home-how" id="how-it-works">
