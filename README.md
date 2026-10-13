@@ -8,7 +8,8 @@ A Vercel-ready Next.js portal with Discord OAuth and Neon Postgres-backed retail
 - Protected member dashboard with member-scoped orders, fee status, and tracking links.
 - Member checkout requests are recorded first; Carted confirms item pricing and the service fee before the member pays through Stripe.
 - Stripe charges the saved product price multiplied by quantity, plus the saved service fee, with signed webhook payment confirmation.
-- Admin-only order management for adding and pricing member orders, setting the default CAD fee, updating tracking/status, and issuing full refunds.
+- Admin-only product catalog with uploaded images, retailer/category, and default item price; admins select catalog products for member orders instead of re-entering product URLs.
+- Admin-only order management for pricing member orders, setting the default CAD fee, updating tracking/status, and issuing full refunds.
 - Amazon, Walmart, and Pokémon Center Canada setup forms.
 - Amazon and Walmart account-generation service selection.
 - Quantity and product preferences (Pokémon Center has no $50 cap).
@@ -55,3 +56,5 @@ For local Discord testing, also add `http://localhost:3000/api/auth/callback/dis
 Do not commit `.env.local` or paste secrets into source files. This package contains no credentials. The database table is created automatically on the first authenticated dashboard visit.
 
 Configure `ADMIN_DISCORD_IDS` and Stripe before launch. Members can submit a checkout request even when the default fee is $0.00 CAD. The request is not charged until Carted sets or verifies its item price and service fee in the admin portal. Stripe then charges the saved item price multiplied by quantity plus the saved fee; amounts come from the database, never from a browser-submitted checkout total. Pricing edits expire any open Stripe Checkout Session. Payment status changes only after a signed Stripe webhook; admins can waive unpaid orders or issue full refunds for Stripe-paid orders. Members only see orders assigned to their Discord user ID.
+
+Admins manage reusable products in **Admin Orders → Product catalog**. Upload JPG, PNG, or WebP images up to 1 MB; image data is stored in Neon with the catalog record, so it persists across Vercel deployments without a separate image-storage service. Catalog products can be archived and restored. Existing orders retain their saved item price and quantity if the catalog default price is later changed.
