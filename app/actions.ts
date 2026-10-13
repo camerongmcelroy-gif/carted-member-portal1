@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { auth, signIn, signOut } from "@/auth";
 import { upsertProfile, type ServiceProfile } from "@/lib/db";
+import { createMemberOrder, getDefaultFeeCents } from "@/lib/member-orders";
+import { createOrderCheckoutUrl } from "@/lib/order-payment";
+import { validateRetailerProductUrl, type RetailerId } from "@/lib/product-url";
 
 export async function connectDiscord() {
   await signIn("discord", { redirectTo: "/dashboard" });
@@ -11,6 +14,52 @@ export async function connectDiscord() {
 
 export async function disconnectDiscord() {
   await signOut({ redirectTo: "/" });
+}
+
+export async function requestMemberOrder(formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/");
+
+  const retailer = String(formData.get("retailer") ?? "");
+  if (!["amazon", "walmart", "pokemon-center"].includes(retailer)) {
+    throw new Error("Select a supported retailer");
+  }
+  const product = String(formData.get("product") ?? "").trim().slice(0, 200);
+  const productUrl = String(formData.get("productUrl") ?? "").trim().slice(0, 1000);
+  const memberEmail = String(formData.get("memberEmail") ?? "").trim().toLowerCase();
+  const quantity = Number(formData.get("quantity"));
+  if (!product) throw new Error("Enter the product name");
+  if (!Number.isInteger(quantity) || quantity < 1 || quantity > 100) {
+    throw new Error("Quantity must be between 1 and 100");
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(memberEmail) || memberEmail.length > 254) {
+    throw new Error("Enter a valid contact email");
+  }
+
+  const safeProductUrl = validateRetailerProductUrl(productUrl, retailer as RetailerId);
+
+  const feeCents = await getDefaultFeeCents();
+  await createMemberOrder({
+    memberId: session.user.id,
+    memberEmail,
+    product,
+    productUrl: safeProductUrl,
+    retailer: retailer as ServiceProfile["retailer"],
+    quantity,
+    orderValueCents: null,
+    feeCents,
+    createdBy: session.user.id,
+  });
+  revalidatePath("/dashboard");
+  redirect("/dashboard?view=orders&request=submitted");
+}
+
+export async function payMemberOrder(formData: FormData) {
+  const session = await auth();
+  if (!session?.user?.id) redirect("/");
+  const orderId = String(formData.get("orderId") ?? "").trim();
+  if (!orderId) throw new Error("Order ID is required");
+  redirect(await createOrderCheckoutUrl(orderId, session.user.id));
 }
 
 export async function saveServiceProfile(formData: FormData) {
