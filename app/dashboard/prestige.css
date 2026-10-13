@@ -177,3 +177,21 @@
 .admin-pricing-form input,.admin-pricing-form select{width:100%;min-height:38px;padding:8px 10px;border:1px solid #304052;border-radius:8px;background:#091019;color:#f3f8ff}
 .admin-pricing-form button{grid-column:1/-1}
 @media(max-width:720px){.admin-pricing-form{grid-template-columns:1fr}.admin-pricing-form button{grid-column:auto}}
+.catalog-product-form,.catalog-product-edit{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:16px 0;padding:16px;border:1px solid #26384c;border-radius:10px;background:#0b121b}
+.catalog-product-form label,.catalog-product-edit label{display:grid;gap:6px;color:#aab8c8;font-size:11px;font-weight:700}
+.catalog-product-form input,.catalog-product-form select,.catalog-product-edit input,.catalog-product-edit select{width:100%;min-height:38px;padding:8px 10px;border:1px solid #304052;border-radius:8px;background:#091019;color:#f3f8ff}
+.catalog-product-form input[type=file],.catalog-product-edit input[type=file]{padding:6px}
+.catalog-product-form button{grid-column:1/-1}
+.catalog-product-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-top:18px}
+.catalog-product-card{min-width:0;padding:14px;border:1px solid #26384c;border-radius:12px;background:#101720}
+.catalog-product-card.archived{opacity:.72}
+.catalog-product-card>img{display:block;width:100%;height:180px;object-fit:contain;padding:10px;border:1px solid #26384c;border-radius:9px;background:#fff}
+.catalog-product-edit{grid-template-columns:1fr;margin:12px 0 8px;padding:0;border:0;background:transparent}
+.catalog-product-edit .save-button{width:100%}
+.catalog-archive-button{padding:8px 12px;border:1px solid #3a4b60;border-radius:7px;background:#111c28;color:#c2d0df;cursor:pointer}
+.admin-order-card{display:grid;grid-template-columns:72px minmax(0,1fr);column-gap:14px;align-items:start}
+.admin-order-image{grid-row:1/4;width:72px;height:72px;object-fit:contain;padding:4px;border:1px solid #304052;border-radius:8px;background:#fff}
+.admin-order-card>h3,.admin-order-card>p,.admin-order-card>form{grid-column:2}
+.member-order-product{display:flex;align-items:center;gap:10px;min-width:190px}
+.member-order-product>img{width:48px;height:48px;flex:0 0 48px;object-fit:contain;padding:3px;border:1px solid #304052;border-radius:6px;background:#fff}
+@media(max-width:720px){.catalog-product-form{grid-template-columns:1fr}.catalog-product-form button{grid-column:auto}.admin-order-card{grid-template-columns:52px minmax(0,1fr)}.admin-order-image{width:52px;height:52px}.admin-order-card>form{grid-column:1/-1}}
