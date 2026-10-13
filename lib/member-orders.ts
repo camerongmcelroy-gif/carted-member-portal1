@@ -15,6 +15,8 @@ export type MemberOrder = {
   id: string;
   product: string;
   product_url: string | null;
+  catalog_product_id: string | null;
+  product_image: string | null;
   retailer: string;
   quantity: number;
   order_value_cents: number | null;
@@ -26,6 +28,15 @@ export type MemberOrder = {
   created_at: string;
 };
 export type AdminMemberOrder = MemberOrder & { member_id: string; member_email: string };
+export type CatalogProduct = {
+  id: string;
+  name: string;
+  retailer: "amazon" | "walmart" | "pokemon-center";
+  category: string;
+  image_data: string;
+  unit_price_cents: number;
+  active: boolean;
+};
 
 let schema: Promise<void> | undefined;
 
@@ -45,6 +56,18 @@ async function setup() {
   await sql`INSERT INTO carted_portal_settings (setting_key, setting_value, updated_by)
     VALUES ('default_fee_cents', '0', 'system')
     ON CONFLICT (setting_key) DO NOTHING`;
+  await sql`CREATE TABLE IF NOT EXISTS carted_catalog_products (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    retailer TEXT NOT NULL CHECK (retailer IN ('amazon', 'walmart', 'pokemon-center')),
+    category TEXT NOT NULL DEFAULT '',
+    image_data TEXT NOT NULL,
+    unit_price_cents BIGINT NOT NULL CHECK (unit_price_cents >= 0),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    created_by TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  )`;
   await sql`CREATE TABLE IF NOT EXISTS carted_member_orders (
     id TEXT PRIMARY KEY,
     member_id TEXT NOT NULL,
@@ -71,6 +94,7 @@ async function setup() {
     ALTER COLUMN order_value_cents TYPE BIGINT,
     ALTER COLUMN fee_cents TYPE BIGINT`;
   await sql`ALTER TABLE carted_member_orders ADD COLUMN IF NOT EXISTS product_url TEXT`;
+  await sql`ALTER TABLE carted_member_orders ADD COLUMN IF NOT EXISTS catalog_product_id TEXT`;
   await sql`ALTER TABLE carted_member_orders ADD COLUMN IF NOT EXISTS stripe_checkout_session_id TEXT`;
   await sql`ALTER TABLE carted_member_orders ADD COLUMN IF NOT EXISTS stripe_payment_intent_id TEXT`;
   await sql`CREATE INDEX IF NOT EXISTS carted_member_orders_member_created_idx
@@ -85,24 +109,28 @@ async function setup() {
 
 export async function listMemberOrders(memberId: string): Promise<MemberOrder[]> {
   await ensureMemberOrders();
-  return await sqlClient()`SELECT id, product, retailer, quantity,
-      product_url, order_value_cents::double precision AS order_value_cents,
-      fee_cents::double precision AS fee_cents, status, payment_status, tracking_number, tracking_url,
-      created_at::text
-    FROM carted_member_orders
-    WHERE member_id = ${memberId}
-    ORDER BY created_at DESC
+  return await sqlClient()`SELECT o.id, o.product, o.retailer, o.quantity,
+      o.product_url, o.catalog_product_id, p.image_data AS product_image,
+      o.order_value_cents::double precision AS order_value_cents,
+      o.fee_cents::double precision AS fee_cents, o.status, o.payment_status,
+      o.tracking_number, o.tracking_url, o.created_at::text
+    FROM carted_member_orders o
+    LEFT JOIN carted_catalog_products p ON p.id = o.catalog_product_id
+    WHERE o.member_id = ${memberId}
+    ORDER BY o.created_at DESC
     LIMIT 100` as MemberOrder[];
 }
 
 export async function listAllMemberOrders(): Promise<AdminMemberOrder[]> {
   await ensureMemberOrders();
-  return await sqlClient()`SELECT id, member_id, member_email, product, retailer, quantity,
-      product_url, order_value_cents::double precision AS order_value_cents,
-      fee_cents::double precision AS fee_cents, status, payment_status, tracking_number, tracking_url,
-      created_at::text
-    FROM carted_member_orders
-    ORDER BY created_at DESC
+  return await sqlClient()`SELECT o.id, o.member_id, o.member_email, o.product, o.retailer, o.quantity,
+      o.product_url, o.catalog_product_id, p.image_data AS product_image,
+      o.order_value_cents::double precision AS order_value_cents,
+      o.fee_cents::double precision AS fee_cents, o.status, o.payment_status,
+      o.tracking_number, o.tracking_url, o.created_at::text
+    FROM carted_member_orders o
+    LEFT JOIN carted_catalog_products p ON p.id = o.catalog_product_id
+    ORDER BY o.created_at DESC
     LIMIT 100` as AdminMemberOrder[];
 }
 
@@ -123,11 +151,66 @@ export async function saveDefaultFeeCents(cents: number, adminId: string) {
       updated_by = EXCLUDED.updated_by, updated_at = NOW()`;
 }
 
+export async function listCatalogProducts(includeArchived = true): Promise<CatalogProduct[]> {
+  await ensureMemberOrders();
+  if (includeArchived) {
+    return await sqlClient()`SELECT id, name, retailer, category, image_data,
+        unit_price_cents::double precision AS unit_price_cents, active
+      FROM carted_catalog_products ORDER BY active DESC, retailer, name` as CatalogProduct[];
+  }
+  return await sqlClient()`SELECT id, name, retailer, category, image_data,
+      unit_price_cents::double precision AS unit_price_cents, active
+    FROM carted_catalog_products WHERE active = TRUE ORDER BY retailer, name` as CatalogProduct[];
+}
+
+export async function getCatalogProduct(id: string): Promise<CatalogProduct | null> {
+  await ensureMemberOrders();
+  const rows = await sqlClient()`SELECT id, name, retailer, category, image_data,
+      unit_price_cents::double precision AS unit_price_cents, active
+    FROM carted_catalog_products WHERE id = ${id} LIMIT 1` as CatalogProduct[];
+  return rows[0] ?? null;
+}
+
+export async function saveCatalogProduct(input: {
+  id: string | null;
+  name: string;
+  retailer: "amazon" | "walmart" | "pokemon-center";
+  category: string;
+  imageData: string | null;
+  unitPriceCents: number;
+  adminId: string;
+}) {
+  await ensureMemberOrders();
+  if (input.id) {
+    const rows = await sqlClient()`UPDATE carted_catalog_products SET
+        name = ${input.name}, retailer = ${input.retailer}, category = ${input.category},
+        image_data = COALESCE(${input.imageData}, image_data),
+        unit_price_cents = ${input.unitPriceCents}, updated_at = NOW()
+      WHERE id = ${input.id} RETURNING id`;
+    if (!rows.length) throw new Error("Catalog product was not found");
+    return input.id;
+  }
+  const id = randomUUID();
+  await sqlClient()`INSERT INTO carted_catalog_products
+      (id, name, retailer, category, image_data, unit_price_cents, created_by)
+    VALUES (${id}, ${input.name}, ${input.retailer}, ${input.category},
+      ${input.imageData}, ${input.unitPriceCents}, ${input.adminId})`;
+  return id;
+}
+
+export async function setCatalogProductActive(id: string, active: boolean) {
+  await ensureMemberOrders();
+  const rows = await sqlClient()`UPDATE carted_catalog_products SET
+      active = ${active}, updated_at = NOW() WHERE id = ${id} RETURNING id`;
+  if (!rows.length) throw new Error("Catalog product was not found");
+}
+
 export async function createMemberOrder(input: {
   memberId: string;
   memberEmail: string;
   product: string;
   productUrl: string | null;
+  catalogProductId?: string | null;
   retailer: "amazon" | "walmart" | "pokemon-center";
   quantity: number;
   orderValueCents: number | null;
@@ -137,10 +220,11 @@ export async function createMemberOrder(input: {
   await ensureMemberOrders();
   const id = randomUUID();
   await sqlClient()`INSERT INTO carted_member_orders (
-      id, member_id, member_email, product, product_url, retailer, quantity, order_value_cents,
+      id, member_id, member_email, product, product_url, catalog_product_id, retailer, quantity, order_value_cents,
         fee_cents, payment_status, created_by
     ) VALUES (
       ${id}, ${input.memberId}, ${input.memberEmail}, ${input.product}, ${input.productUrl},
+      ${input.catalogProductId ?? null},
       ${input.retailer}, ${input.quantity}, ${input.orderValueCents},
         ${input.feeCents}, 'pending', ${input.createdBy}
     )`;
@@ -160,6 +244,7 @@ export async function getOrderPricingDetails(id: string) {
 
 export async function updateMemberOrderPricing(input: {
   id: string;
+  catalogProductId: string;
   product: string;
   productUrl: string | null;
   retailer: "amazon" | "walmart" | "pokemon-center";
@@ -171,6 +256,7 @@ export async function updateMemberOrderPricing(input: {
   await ensureMemberOrders();
   const rows = await sqlClient()`UPDATE carted_member_orders SET
       product = ${input.product}, product_url = ${input.productUrl},
+      catalog_product_id = ${input.catalogProductId},
       retailer = ${input.retailer}, quantity = ${input.quantity},
       order_value_cents = ${input.unitPriceCents}, fee_cents = ${input.feeCents},
       payment_status = 'pending',
