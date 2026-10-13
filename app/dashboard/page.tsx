@@ -3,8 +3,9 @@ import Image from "next/image";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getProfiles, type ServiceProfile } from "@/lib/db";
-import { listCheckouts, type Checkout } from "@/lib/checkouts";
-import { disconnectDiscord, saveServiceProfile } from "../actions";
+import { isAdmin, listCheckouts, type Checkout } from "@/lib/checkouts";
+import { getDefaultFeeCents, listMemberOrders, type MemberOrder } from "@/lib/member-orders";
+import { disconnectDiscord, payMemberOrder, requestMemberOrder, saveServiceProfile } from "../actions";
 import LiveCheckouts, { ProductImage } from "../components/live-checkouts";
 import CopyReferral from "./copy-referral";
 
@@ -22,17 +23,19 @@ const canadianProvinces = [
 const expiryYears = Array.from({ length: 16 }, (_, index) => new Date().getFullYear() + index);
 const PROFILE_LIMIT = 15;
 
-type View = "home" | "wins" | "profiles" | "referrals" | "settings";
-type SearchParams = Promise<{ saved?: string; error?: string; view?: string; retailer?: string }>;
+type View = "home" | "orders" | "wins" | "profiles" | "referrals" | "settings";
+type SearchParams = Promise<{ saved?: string; error?: string; view?: string; retailer?: string; payment?: string; request?: string }>;
 
 export default async function Dashboard({ searchParams }: { searchParams: SearchParams }) {
   const session = await auth();
   if (!session?.user?.id) redirect("/");
   const params = await searchParams;
-  const view: View = ["wins", "profiles", "referrals", "settings"].includes(params.view ?? "") ? params.view as View : "home";
-  const [profiles, checkoutResult] = await Promise.all([
+  const view: View = ["home", "orders", "wins", "profiles", "referrals", "settings"].includes(params.view ?? "") ? params.view as View : "home";
+  const [profiles, checkoutResult, orders, defaultFeeCents] = await Promise.all([
     getProfiles(session.user.id),
     ["profiles", "referrals", "settings"].includes(view) ? Promise.resolve({ items: [] as Checkout[], failed: false }) : listCheckouts(session.user.id).then(items => ({ items, failed: false })).catch(() => ({ items: [] as Checkout[], failed: true })),
+    view === "orders" || view === "home" ? listMemberOrders(session.user.id) : Promise.resolve([] as MemberOrder[]),
+    view === "orders" || view === "home" ? getDefaultFeeCents() : Promise.resolve(0),
   ]);
   const checkouts = checkoutResult.items;
   const profilesByRetailer = new Map(profiles.map(profile => [profile.retailer, profile]));
@@ -45,10 +48,14 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
 
   return <div className="np-shell">
     <header className="np-topbar"><a className="np-logo" href="/dashboard"><Image src="/carted-logo.png" alt="" width={38} height={38} priority /><strong>CARTED</strong></a><div className="np-member">{session.user.image ? <Image src={session.user.image} alt="" width={30} height={30} unoptimized /> : <span className="np-avatar-fallback">{(session.user.name ?? "C")[0]}</span>}<span>{session.user.name ?? "Carted member"}</span></div></header>
-    <aside className="np-sidebar"><p>CARTED MEMBER PORTAL</p><nav aria-label="Member dashboard"><NavItem view="home" active={view} icon="⌂" label="HOME" /><NavItem view="wins" active={view} icon="✓" label="CHECKOUTS" /><NavItem view="profiles" active={view} icon="▱" label="PROFILES" /><a className="np-invoice-link" href="https://www.paypal.com/ncp/payment/Z6R2S52N66DBN" target="_blank" rel="noopener noreferrer"><i aria-hidden="true">▣</i> INVOICES <em>PAYPAL</em></a><NavItem view="referrals" active={view} icon="♧" label="REFERRALS" /><NavItem view="settings" active={view} icon="☷" label="SETTINGS" /></nav><div className="np-pas"><span>PAS</span><strong>Pay after success</strong><small>No service cost until your product is secured.</small></div><a className="np-back" href="https://carted.ca">← Back to carted.ca</a></aside>
+    <aside className="np-sidebar"><p>CARTED MEMBER PORTAL</p><nav aria-label="Member dashboard"><NavItem view="orders" active={view} icon="▤" label="ORDERS" /><NavItem view="home" active={view} icon="⌂" label="OVERVIEW" /><NavItem view="wins" active={view} icon="✓" label="CHECKOUTS" /><NavItem view="profiles" active={view} icon="▱" label="PROFILES" /><a className="np-fees-link" href="/dashboard?view=orders#fees"><i aria-hidden="true">$</i>FEES</a><NavItem view="referrals" active={view} icon="♧" label="REFERRALS" /><NavItem view="settings" active={view} icon="☷" label="SETTINGS" />{isAdmin(session.user.id) ? <a className="np-admin-link" href="/dashboard/admin"><i aria-hidden="true">⚙</i>ADMIN ORDERS</a> : null}</nav><div className="np-pas"><span>ORDER FEES</span><strong>See each order</strong><small>Any fee and payment status will be shown with the order details below.</small></div><a className="np-back" href="https://carted.ca">← Back to carted.ca</a></aside>
     <main className="np-main">
       {params.saved ? <p className="notice success">Your {retailerLabel(params.saved)} profile was saved.</p> : null}
       {params.error ? <p className="notice error">{profileError(params.error)}</p> : null}
+      {params.payment === "success" ? <p className="notice success">You returned from Stripe. Payment status will update after Carted receives confirmation.</p> : null}
+      {params.payment === "cancelled" ? <p className="notice error">Payment was cancelled. Your order is saved, and you can try again from the order list.</p> : null}
+      {params.request === "submitted" ? <p className="notice success">Your request was submitted.</p> : null}
+      {view === "orders" ? <OrdersView orders={orders} defaultFeeCents={defaultFeeCents} email={session.user.email} /> : null}
       {view === "home" ? <HomeView profiles={profiles.length} confirmed={confirmed} cancelled={cancelled.length} weekWins={weekWins} weekUnits={weekUnits} feedFailed={checkoutResult.failed} /> : null}
       {view === "wins" ? <><PageTitle title="Checkouts" copy="Your checkout history, quantities, and order status." />{checkoutResult.failed ? <FeedError /> : <LiveCheckouts initial={checkouts} />}</> : null}
       {view === "profiles" ? <ProfilesView profiles={profilesByRetailer} selected={selectedRetailer} /> : null}
@@ -61,8 +68,67 @@ export default async function Dashboard({ searchParams }: { searchParams: Search
 function NavItem({ view, active, icon, label }: { view: View; active: View; icon: string; label: string }) { return <a href={`/dashboard?view=${view}`} aria-current={view === active ? "page" : undefined}><i aria-hidden="true">{icon}</i>{label}</a>; }
 function PageTitle({ title, copy }: { title: string; copy: string }) { return <div className="np-page-title"><h1>{title}</h1><p>{copy}</p></div>; }
 
+function OrdersView({ orders, defaultFeeCents, email }: { orders: MemberOrder[]; defaultFeeCents: number; email?: string | null }) {
+  const active = orders.filter(order => !["delivered", "cancelled"].includes(order.status));
+  const inTransit = orders.filter(order => order.status === "shipped");
+  const processing = orders.filter(order => ["submitted", "processing"].includes(order.status));
+  const amountDueCents = orders.reduce((sum, order) => sum + (
+    order.payment_status === "pending" && order.order_value_cents !== null
+      ? order.order_value_cents * order.quantity + order.fee_cents
+      : 0
+  ), 0);
+  const inventory = orders.filter(order => order.status === "secured");
+  const orderValue = orders.reduce((sum, order) => sum + (order.order_value_cents ?? 0) * order.quantity, 0);
+  const money = (cents: number) => new Intl.NumberFormat("en-CA", { style: "currency", currency: "CAD" }).format(cents / 100);
+
+  return <><PageTitle title="Orders" copy="Your checkouts, delivery status, and service fees in one place." />
+    <section className="member-order-stats" aria-label="Order summary">
+      <OrderStat label="ACTIVE ORDERS" value={active.length} />
+      <OrderStat label="IN TRANSIT" value={inTransit.length} />
+      <OrderStat label="PROCESSING" value={processing.length} />
+      <OrderStat label="AMOUNT DUE" value={money(amountDueCents)} />
+      <OrderStat label="SECURED" value={inventory.length} />
+      <OrderStat label="ORDER VALUE" value={money(orderValue)} />
+    </section>
+    <section className="member-request-panel">
+      <header><div><h2>Request a checkout</h2><p>Carted will confirm the item price and service fee before you pay. Your order request will be saved first.</p></div><strong>Fee estimate: {money(defaultFeeCents)}</strong></header>
+      <form action={requestMemberOrder}>
+        <label>Retailer<select name="retailer" required defaultValue=""><option value="" disabled>Select retailer</option><option value="amazon">Amazon CA</option><option value="walmart">Walmart CA</option><option value="pokemon-center">Pokémon Center CA</option></select></label>
+        <label>Product name<input name="product" required maxLength={200} placeholder="Product name" /></label>
+        <label>Product link<input name="productUrl" type="url" required maxLength={1000} placeholder="https://..." /></label>
+        <label>Quantity<input name="quantity" type="number" min="1" max="100" step="1" required defaultValue="1" /></label>
+        <label>Contact email<input name="memberEmail" type="email" maxLength={254} required defaultValue={email ?? ""} /></label>
+        <button className="member-request-submit">Submit checkout request</button>
+      </form>
+    </section>
+    <section className="member-orders-panel" id="fees">
+      <header><div><h2>Order history</h2><p>Carted confirms product pricing before you pay the item total and service fee securely with Stripe.</p></div><span>{orders.length} {orders.length === 1 ? "order" : "orders"}</span></header>
+      {!orders.length ? <div className="member-orders-empty"><strong>No orders yet</strong><p>When Carted adds a request or checkout to your account, it will appear here with its status and fee.</p><a href="/dashboard?view=profiles">View retailer profiles</a></div> :
+        <div className="member-orders-scroll"><table className="member-orders-table"><thead><tr><th>STATUS</th><th>PRODUCT</th><th>RETAILER</th><th>QTY</th><th>TRACKING</th><th>DATE</th><th>ITEM TOTAL</th><th>SERVICE FEE</th><th>CHARGE</th></tr></thead>
+          <tbody>{orders.map(order => <tr key={order.id}>
+            <td><span className={`member-order-status ${order.status}`}>{order.status.replaceAll("_", " ")}</span></td>
+            <td><strong>{order.product}</strong>{order.product_url ? <small><a href={order.product_url} target="_blank" rel="noopener noreferrer">View product ↗</a></small> : null}{order.order_value_cents === null ? <small className="member-awaiting-price">Awaiting Carted price confirmation</small> : <small>{money(order.order_value_cents)} per item</small>}</td>
+            <td>{retailerLabel(order.retailer)}</td><td>{order.quantity}</td>
+            <td>{order.tracking_url ? <a href={order.tracking_url} target="_blank" rel="noopener noreferrer">{order.tracking_number ?? "Track order"} ↗</a> : order.tracking_number ?? "—"}</td>
+            <td><time dateTime={order.created_at}>{new Date(order.created_at).toLocaleDateString("en-CA", { month: "short", day: "numeric", year: "numeric" })}</time></td>
+            <td>{order.order_value_cents === null ? "—" : money(order.order_value_cents * order.quantity)}</td>
+            <td>{money(order.fee_cents)}</td>
+            <td>{order.order_value_cents === null ? <small className="member-awaiting-price">Price pending</small> : <>
+              <strong>{money(order.order_value_cents * order.quantity + order.fee_cents)}</strong>
+              <small className={`member-fee-status ${order.payment_status}`}>{order.payment_status}</small>
+              {order.payment_status === "pending" && order.status !== "cancelled" ? <form action={payMemberOrder}><input type="hidden" name="orderId" value={order.id} /><button className="member-pay-button">Pay total</button></form> : null}
+            </>}</td>
+          </tr>)}</tbody></table></div>}
+    </section>
+  </>;
+}
+
+function OrderStat({ label, value }: { label: string; value: number | string }) {
+  return <article><span>{label}</span><strong>{value}</strong></article>;
+}
+
 function HomeView({ profiles, confirmed, cancelled, weekWins, weekUnits, feedFailed }: { profiles: number; confirmed: Checkout[]; cancelled: number; weekWins: Checkout[]; weekUnits: number; feedFailed: boolean }) {
-  return <><PageTitle title="Home" copy="Profiles, this week’s activity, and recent checkout wins." /><section className="np-summary"><article className="np-balance"><span className="np-card-label">● SERVICE MODEL</span><div><strong>PAS</strong><em>Pay after success</em></div><p>You are only charged after a product is secured.</p><small>✓ No upfront checkout fee</small></article><div className="np-totals"><MiniTotal tone="green" icon="✓" value={confirmed.length} label="Checkouts completed" /><MiniTotal tone="blue" icon="▱" value={`${profiles} / ${PROFILE_LIMIT}`} label="Retailer profiles active" /><MiniTotal tone="red" icon="⊘" value={cancelled} label="Cancellations logged" /></div></section><div className="np-section-line"><h2>This week’s activity</h2><span>Last 7 days</span></div><section className="np-week"><Metric icon="♛" value={weekWins.length} label="CHECKOUTS THIS WEEK" note="Confirmed in the last 7 days" /><Metric icon="▦" value={weekUnits} label="UNITS SECURED" note="Quantity across confirmed wins" /><Metric icon="▱" value={profiles} label="PROFILES READY" note={`${PROFILE_LIMIT} profile slots available`} /></section><section className="np-lower"><article className="np-recent"><h2><span />Recent wins</h2>{feedFailed ? <FeedError /> : confirmed.length ? confirmed.slice(0, 6).map(item => <WinRow key={item.id} item={item} />) : <div className="np-empty"><strong>Your next win belongs here.</strong><p>Confirmed Discord checkouts linked to your account will appear automatically.</p></div>}</article><article className="np-side-card"><h2>Account status</h2><div className="np-status-ring">{profiles}<small>of {PROFILE_LIMIT} profiles</small></div><p>{profiles >= PROFILE_LIMIT ? "All profile slots are ready." : `${PROFILE_LIMIT - profiles} profile slots available.`}</p><a href="/dashboard?view=profiles">Manage profiles →</a></article></section></>;
+  return <><PageTitle title="Overview" copy="Your profiles, activity, and recent checkout wins." /><section className="np-summary"><article className="np-balance"><span className="np-card-label">● ORDER FEES</span><div><strong>CAD</strong><em>Per order</em></div><p>Check the Orders page for fee amounts and payment status.</p><small>✓ Clear order-by-order tracking</small></article><div className="np-totals"><MiniTotal tone="green" icon="✓" value={confirmed.length} label="Checkouts completed" /><MiniTotal tone="blue" icon="▱" value={`${profiles} / ${PROFILE_LIMIT}`} label="Retailer profiles active" /><MiniTotal tone="red" icon="⊘" value={cancelled} label="Cancellations logged" /></div></section><div className="np-section-line"><h2>This week’s activity</h2><span>Last 7 days</span></div><section className="np-week"><Metric icon="♛" value={weekWins.length} label="CHECKOUTS THIS WEEK" note="Confirmed in the last 7 days" /><Metric icon="▦" value={weekUnits} label="UNITS SECURED" note="Quantity across confirmed wins" /><Metric icon="▱" value={profiles} label="PROFILES READY" note={`${PROFILE_LIMIT} profile slots available`} /></section><section className="np-lower"><article className="np-recent"><h2><span />Recent wins</h2>{feedFailed ? <FeedError /> : confirmed.length ? confirmed.slice(0, 6).map(item => <WinRow key={item.id} item={item} />) : <div className="np-empty"><strong>Your next win belongs here.</strong><p>Confirmed Discord checkouts linked to your account will appear automatically.</p></div>}</article><article className="np-side-card"><h2>Account status</h2><div className="np-status-ring">{profiles}<small>of {PROFILE_LIMIT} profiles</small></div><p>{profiles >= PROFILE_LIMIT ? "All profile slots are ready." : `${PROFILE_LIMIT - profiles} profile slots available.`}</p><a href="/dashboard?view=profiles">Manage profiles →</a></article></section></>;
 }
 
 function MiniTotal({ tone, icon, value, label }: { tone: string; icon: string; value: string | number; label: string }) { return <article><span className={`np-total-icon ${tone}`}>{icon}</span><div><strong>{value}</strong><small>{label}</small></div></article>; }
